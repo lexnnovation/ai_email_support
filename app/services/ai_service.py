@@ -62,6 +62,20 @@ def detect_intent(text: str) -> str:
     return intent
 
 
+def detect_language(text: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "Detect the language of the following text. Return ONLY the language name in English (e.g. 'Italian', 'English', 'French', 'German'). Nothing else."
+            },
+            {"role": "user", "content": text}
+        ]
+    )
+    return response.choices[0].message.content.strip()
+
+
 def extract_guest_name(subject: str, body: str) -> str:
     combined = f"Email subject: {subject}\n\nEmail body: {body}"
     response = client.chat.completions.create(
@@ -108,7 +122,7 @@ def extract_apartment(subject: str, body: str) -> str:
     return ""
 
 
-def generate_answer(question: str, context: str) -> str:
+def generate_answer(question: str, context: str, language: str = "English") -> str:
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -119,7 +133,9 @@ def generate_answer(question: str, context: str) -> str:
                     "Answer the guest's question using ONLY the provided context. "
                     "The context may include FAQ entries and apartment manual excerpts. "
                     "Prefer specific, detailed information over general statements. "
-                    "Do not use any outside knowledge. Keep the answer helpful and concise."
+                    "Do not use any outside knowledge. Keep the answer helpful and concise. "
+                    "Do NOT include any greeting or sign-off — only the answer body. "
+                    f"Reply in {language}."
                 )
             },
             {
@@ -131,13 +147,18 @@ def generate_answer(question: str, context: str) -> str:
     return response.choices[0].message.content.strip()
 
 
-def handle_non_question(text: str) -> str:
+def handle_non_question(text: str, language: str = "English") -> str:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
-                "content": "You are an apartment support assistant. The guest sent a message that is not a question. Respond politely in 1 to 3 sentences. Do not ask questions. Do not provide information."
+                "content": (
+                    "You are an apartment support assistant. The guest sent a message that is not a question. "
+                    "Respond politely in 1 to 3 sentences. Do not ask questions. Do not provide information. "
+                    "Do NOT include any greeting or sign-off — only the response body. "
+                    f"Reply in {language}."
+                )
             },
             {"role": "user", "content": text}
         ]
@@ -146,12 +167,13 @@ def handle_non_question(text: str) -> str:
 
 
 def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
+    language = detect_language(chat_input)
     guest_name = extract_guest_name(subject, chat_input)
     normalized = normalize_input(chat_input)
     intent = detect_intent(normalized)
 
     if intent == "non_question":
-        message = handle_non_question(normalized)
+        message = handle_non_question(normalized, language)
         return format_email(message, guest_name)
 
     if not apartment:
@@ -168,5 +190,5 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
         return format_email(FALLBACK_MESSAGE, guest_name)
 
     context = "\n\n---\n\n".join(r["content"] for r in results)
-    answer = generate_answer(normalized, context)
+    answer = generate_answer(normalized, context, language)
     return format_email(answer, guest_name)
