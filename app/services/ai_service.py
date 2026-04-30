@@ -110,7 +110,7 @@ def extract_apartment(subject: str, body: str) -> str:
 
 def generate_answer(question: str, context: str) -> str:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
