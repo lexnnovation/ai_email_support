@@ -15,7 +15,7 @@ AI-powered apartment guest email support system. Automatically answers guest que
 
 ```bash
 git clone <repo-url>
-cd srl_email_support
+cd ai_email_support
 uv sync
 cp .env.example .env
 # Edit .env with your actual keys
@@ -80,7 +80,7 @@ Process a guest email and return an AI-generated reply.
 ```bash
 # Clone and install
 git clone <repo-url>
-cd srl_email_support
+cd ai_email_support
 uv sync
 cp .env.example .env
 # Edit .env with production keys
