@@ -1,5 +1,5 @@
 [project]
-name = "srl-email-support"
+name = "ai-email-support"
 version = "0.1.0"
 description = "AI-powered apartment guest email support system with FAQ and policy document retrieval"
 readme = "README.md"
