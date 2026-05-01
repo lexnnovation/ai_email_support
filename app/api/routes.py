@@ -1,14 +1,18 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from app.models.schemas import SupportRequest
 from app.services.ai_service import handle_request
+from app.core.config import API_KEY
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/support")
-def support(request: SupportRequest):
+def support(request: SupportRequest, x_api_key: str = Header(default=None)):
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(
+            status_code=401, detail="Invalid or missing API key")
     try:
         reply = handle_request(
             request.chatInput, request.apartment or "", request.subject or "")
