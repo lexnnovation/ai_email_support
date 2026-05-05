@@ -26,9 +26,20 @@ KNOWN_APARTMENTS = [
 ]
 
 
-def format_email(message: str, guest_name: str = "") -> str:
-    greeting = f"Dear {guest_name}," if guest_name else "Dear Guest,"
-    return f"{greeting}\n\n{message}\n\nBest regards,\nApartment Support Team"
+TRANSLATIONS = {
+    "Italian":  {"dear": "Caro", "dear_guest": "Gentile Ospite", "best_regards": "Cordiali saluti", "team": "Team di Supporto Appartamento"},
+    "French":   {"dear": "Cher", "dear_guest": "Cher Client", "best_regards": "Cordialement", "team": "Équipe de Support"},
+    "German":   {"dear": "Lieber", "dear_guest": "Sehr geehrter Gast", "best_regards": "Mit freundlichen Grüßen", "team": "Apartment-Support-Team"},
+    "Spanish":  {"dear": "Estimado", "dear_guest": "Estimado Huésped", "best_regards": "Saludos cordiales", "team": "Equipo de Soporte"},
+    "Portuguese": {"dear": "Caro", "dear_guest": "Caro Hóspede", "best_regards": "Atenciosamente", "team": "Equipe de Suporte"},
+    "English":  {"dear": "Dear", "dear_guest": "Dear Guest", "best_regards": "Best regards", "team": "Apartment Support Team"},
+}
+
+
+def format_email(message: str, guest_name: str = "", language: str = "English") -> str:
+    t = TRANSLATIONS.get(language, TRANSLATIONS["English"])
+    greeting = f"{t['dear']} {guest_name}," if guest_name else f"{t['dear_guest']},"
+    return f"{greeting}\n\n{message}\n\n{t['best_regards']},\n{t['team']}"
 
 
 def normalize_input(text: str) -> str:
@@ -174,21 +185,21 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
 
     if intent == "non_question":
         message = handle_non_question(normalized, language)
-        return format_email(message, guest_name)
+        return format_email(message, guest_name, language)
 
     if not apartment:
         apartment = extract_apartment(subject, chat_input)
 
     if not apartment:
         message = "Could you please provide the name of your apartment? This will help me assist you more accurately."
-        return format_email(message, guest_name)
+        return format_email(message, guest_name, language)
 
     embedding = get_embedding(normalized)
     results = retrieve_documents(embedding, apartment)
 
     if not results:
-        return format_email(FALLBACK_MESSAGE, guest_name)
+        return format_email(FALLBACK_MESSAGE, guest_name, language)
 
     context = "\n\n---\n\n".join(r["content"] for r in results)
     answer = generate_answer(normalized, context, language)
-    return format_email(answer, guest_name)
+    return format_email(answer, guest_name, language)
