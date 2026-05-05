@@ -1,7 +1,7 @@
 from app.db.supabase_client import supabase
 
 
-def retrieve_documents(query_embedding, apartment, match_count=5):
+def retrieve_documents(query_embedding, apartment, match_count=10):
     response = supabase.rpc(
         "match_documents",
         {
