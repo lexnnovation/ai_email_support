@@ -146,6 +146,7 @@ def generate_answer(question: str, context: str, language: str = "English") -> s
                     "Prefer specific, detailed information over general statements. "
                     "Do not use any outside knowledge. Keep the answer helpful and concise. "
                     "Do NOT include any greeting or sign-off — only the answer body. "
+                    "The context may contain greetings like 'Buonasera', 'Good morning', 'Dear guest' — ignore them completely and never copy them into your answer. "
                     f"Reply in {language}."
                 )
             },
