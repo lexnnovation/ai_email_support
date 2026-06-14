@@ -28,7 +28,22 @@ Thumbs.db
 .vscode/
 .idea/
 *.code-workspace
+
+# Local dev notes / specs (not for distribution)
+docs/
+
+# Editor / agent assistant config (kept local, not published)
+CLAUDE.md
+AGENTS.md
+.cursorrules
+.windsurfrules
+.cursor/
+.claude/
 .windsurf/
+.aider*
+.continue/
+.codeium/
+.github/copilot-instructions.md
 
 # Embedding / data files
 embedding_files/
