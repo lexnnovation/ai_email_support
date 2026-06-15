@@ -2,6 +2,7 @@ from openai import OpenAI
 from app.core.config import OPENAI_API_KEY
 from app.services.embedding_service import get_embedding
 from app.services.retrieval_service import retrieve_documents
+from app.services.escalation_logger import log_escalation
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -27,12 +28,12 @@ KNOWN_APARTMENTS = [
 
 
 TRANSLATIONS = {
-    "Italian":  {"dear": "Caro", "dear_guest": "Gentile Ospite", "best_regards": "Cordiali saluti", "team": "Team di Supporto Appartamento"},
-    "French":   {"dear": "Cher", "dear_guest": "Cher Client", "best_regards": "Cordialement", "team": "Équipe de Support"},
-    "German":   {"dear": "Lieber", "dear_guest": "Sehr geehrter Gast", "best_regards": "Mit freundlichen Grüßen", "team": "Apartment-Support-Team"},
-    "Spanish":  {"dear": "Estimado", "dear_guest": "Estimado Huésped", "best_regards": "Saludos cordiales", "team": "Equipo de Soporte"},
-    "Portuguese": {"dear": "Caro", "dear_guest": "Caro Hóspede", "best_regards": "Atenciosamente", "team": "Equipe de Suporte"},
-    "English":  {"dear": "Dear", "dear_guest": "Dear Guest", "best_regards": "Best regards", "team": "Apartment Support Team"},
+    "Italian":  {"dear": "Caro", "dear_guest": "Gentile Ospite", "best_regards": "Cordiali saluti", "team": "Team di Supporto Appartamento (Assistente AI)"},
+    "French":   {"dear": "Cher", "dear_guest": "Cher Client", "best_regards": "Cordialement", "team": "Équipe de Support (Assistant IA)"},
+    "German":   {"dear": "Lieber", "dear_guest": "Sehr geehrter Gast", "best_regards": "Mit freundlichen Grüßen", "team": "Apartment-Support-Team (KI-Assistent)"},
+    "Spanish":  {"dear": "Estimado", "dear_guest": "Estimado Huésped", "best_regards": "Saludos cordiales", "team": "Equipo de Soporte (Asistente IA)"},
+    "Portuguese": {"dear": "Caro", "dear_guest": "Caro Hóspede", "best_regards": "Atenciosamente", "team": "Equipe de Suporte (Assistente IA)"},
+    "English":  {"dear": "Dear", "dear_guest": "Dear Guest", "best_regards": "Best regards", "team": "Apartment Support Team (AI Assistant)"},
 }
 
 
@@ -71,6 +72,28 @@ def detect_intent(text: str) -> str:
     if intent not in ("question", "non_question"):
         intent = "question"
     return intent
+
+
+def detect_human_request(text: str) -> bool:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Determine if the guest is explicitly asking to speak with a human, manager, receptionist, "
+                    "or any person on the support team. "
+                    "Examples that are YES: 'can someone call me', 'I want to talk to a person', "
+                    "'speak to a manager', 'human support please', 'is anyone there?'. "
+                    "Examples that are NO: regular questions about the apartment, complaints without a request to talk, "
+                    "statements, greetings, thanks. "
+                    "Return ONLY 'yes' or 'no'."
+                )
+            },
+            {"role": "user", "content": text}
+        ]
+    )
+    return response.choices[0].message.content.strip().lower().startswith("y")
 
 
 def detect_language(text: str) -> str:
@@ -183,24 +206,43 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
     guest_name = extract_guest_name(subject, chat_input)
     normalized = normalize_input(chat_input)
     intent = detect_intent(normalized)
+    human_requested = detect_human_request(normalized)
 
     if intent == "non_question":
         message = handle_non_question(normalized, language)
-        return format_email(message, guest_name, language)
+        reply = format_email(message, guest_name, language)
+        if human_requested:
+            log_escalation("human_requested", 0.0, language,
+                           apartment, subject, chat_input, reply)
+        return reply
 
     if not apartment:
         apartment = extract_apartment(subject, chat_input)
 
     if not apartment:
         message = "Could you please provide the name of your apartment? This will help me assist you more accurately."
-        return format_email(message, guest_name, language)
+        reply = format_email(message, guest_name, language)
+        if human_requested:
+            log_escalation("human_requested", 0.0, language,
+                           "", subject, chat_input, reply)
+        return reply
 
     embedding = get_embedding(normalized)
-    results = retrieve_documents(embedding, apartment)
+    results, top_similarity = retrieve_documents(embedding, apartment)
 
     if not results:
-        return format_email(FALLBACK_MESSAGE, guest_name, language)
+        reply = format_email(FALLBACK_MESSAGE, guest_name, language)
+        if human_requested:
+            log_escalation("human_requested", top_similarity, language,
+                           apartment, subject, chat_input, reply)
+        return reply
 
     context = "\n\n---\n\n".join(r["content"] for r in results)
     answer = generate_answer(normalized, context, language)
-    return format_email(answer, guest_name, language)
+    reply = format_email(answer, guest_name, language)
+
+    if human_requested:
+        log_escalation("human_requested", top_similarity, language,
+                       apartment, subject, chat_input, reply)
+
+    return reply

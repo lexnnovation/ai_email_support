@@ -13,9 +13,12 @@ def retrieve_documents(query_embedding, apartment, match_count=10):
 
     results = response.data or []
 
+    top_similarity = max(
+        (r.get("similarity", 0.0) for r in results), default=0.0)
+
     apt_lower = apartment.lower()
     apartment_docs = [
         r for r in results if apt_lower in r.get("content", "").lower()]
     general_docs = [r for r in results if r not in apartment_docs]
 
-    return apartment_docs + general_docs
+    return apartment_docs + general_docs, top_similarity
