@@ -14,9 +14,8 @@ def support(request: SupportRequest, x_api_key: str = Header(default=None)):
         raise HTTPException(
             status_code=401, detail="Invalid or missing API key")
     try:
-        reply = handle_request(
+        return handle_request(
             request.chatInput, request.apartment or "", request.subject or "")
-        return {"reply": reply}
     except Exception as e:
         logger.error(f"Error processing support request: {e}", exc_info=True)
         raise HTTPException(

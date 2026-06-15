@@ -1,5 +1,5 @@
 from openai import OpenAI
-from app.core.config import OPENAI_API_KEY
+from app.core.config import OPENAI_API_KEY, ESCALATION_MODE
 from app.services.embedding_service import get_embedding
 from app.services.retrieval_service import retrieve_documents
 from app.services.escalation_logger import log_escalation
@@ -34,6 +34,15 @@ TRANSLATIONS = {
     "Spanish":  {"dear": "Estimado", "dear_guest": "Estimado Huésped", "best_regards": "Saludos cordiales", "team": "Equipo de Soporte (Asistente IA)"},
     "Portuguese": {"dear": "Caro", "dear_guest": "Caro Hóspede", "best_regards": "Atenciosamente", "team": "Equipe de Suporte (Assistente IA)"},
     "English":  {"dear": "Dear", "dear_guest": "Dear Guest", "best_regards": "Best regards", "team": "Apartment Support Team (AI Assistant)"},
+}
+
+HOLDING_MESSAGES = {
+    "Italian":    "Grazie per il tuo messaggio. Un membro del nostro team ti risponderà a breve.",
+    "French":     "Merci pour votre message. Un membre de notre équipe vous répondra sous peu.",
+    "German":     "Vielen Dank für Ihre Nachricht. Ein Mitglied unseres Teams wird sich in Kürze bei Ihnen melden.",
+    "Spanish":    "Gracias por tu mensaje. Un miembro de nuestro equipo se pondrá en contacto contigo en breve.",
+    "Portuguese": "Obrigado pela sua mensagem. Um membro da nossa equipa entrará em contacto consigo em breve.",
+    "English":    "Thanks for your message — a team member will follow up with you shortly.",
 }
 
 
@@ -201,12 +210,39 @@ def handle_non_question(text: str, language: str = "English") -> str:
     return response.choices[0].message.content.strip()
 
 
-def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
+def _normal_response(reply: str) -> dict:
+    return {"reply": reply, "escalate": False}
+
+
+def _escalation_response(reply: str, language: str, apartment: str,
+                         subject: str, guest_message: str) -> dict:
+    return {
+        "reply": reply,
+        "escalate": True,
+        "reason": "human_requested",
+        "subject": subject,
+        "guest_message": guest_message,
+        "apartment": apartment,
+        "language": language,
+    }
+
+
+def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
     language = detect_language(chat_input)
     guest_name = extract_guest_name(subject, chat_input)
     normalized = normalize_input(chat_input)
-    intent = detect_intent(normalized)
     human_requested = detect_human_request(normalized)
+
+    if human_requested and ESCALATION_MODE == "active":
+        if not apartment:
+            apartment = extract_apartment(subject, chat_input)
+        holding = HOLDING_MESSAGES.get(language, HOLDING_MESSAGES["English"])
+        reply = format_email(holding, guest_name, language)
+        log_escalation("human_requested", 0.0, language,
+                       apartment, subject, chat_input, reply)
+        return _escalation_response(reply, language, apartment, subject, chat_input)
+
+    intent = detect_intent(normalized)
 
     if intent == "non_question":
         message = handle_non_question(normalized, language)
@@ -214,7 +250,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
         if human_requested:
             log_escalation("human_requested", 0.0, language,
                            apartment, subject, chat_input, reply)
-        return reply
+        return _normal_response(reply)
 
     if not apartment:
         apartment = extract_apartment(subject, chat_input)
@@ -225,7 +261,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
         if human_requested:
             log_escalation("human_requested", 0.0, language,
                            "", subject, chat_input, reply)
-        return reply
+        return _normal_response(reply)
 
     embedding = get_embedding(normalized)
     results, top_similarity = retrieve_documents(embedding, apartment)
@@ -235,7 +271,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
         if human_requested:
             log_escalation("human_requested", top_similarity, language,
                            apartment, subject, chat_input, reply)
-        return reply
+        return _normal_response(reply)
 
     context = "\n\n---\n\n".join(r["content"] for r in results)
     answer = generate_answer(normalized, context, language)
@@ -245,4 +281,4 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> str:
         log_escalation("human_requested", top_similarity, language,
                        apartment, subject, chat_input, reply)
 
-    return reply
+    return _normal_response(reply)
