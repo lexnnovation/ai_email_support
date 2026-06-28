@@ -1,3 +1,5 @@
+import re
+
 from openai import OpenAI
 from app.core.config import OPENAI_API_KEY, ESCALATION_MODE
 from app.services.embedding_service import get_embedding
@@ -45,11 +47,36 @@ HOLDING_MESSAGES = {
     "English":    "Thanks for your message — a team member will follow up with you shortly.",
 }
 
+# The word a guest replies with to reach a human. Kept as the English word in
+# every language so detection stays language-independent (see _mentions_human_keyword).
+HUMAN_KEYWORD = "HUMAN"
 
-def format_email(message: str, guest_name: str = "", language: str = "English") -> str:
+# Invitation appended to normal AI replies, telling the guest how to reach a
+# human if the answer didn't satisfy them. The keyword itself stays "HUMAN".
+HUMAN_INVITE = {
+    "Italian":    f"Se questo non ha risolto completamente la tua richiesta, rispondi con la parola {HUMAN_KEYWORD} e un membro del nostro team ti assisterà personalmente.",
+    "French":     f"Si cela n'a pas entièrement répondu à votre question, répondez avec le mot {HUMAN_KEYWORD} et un membre de notre équipe vous assistera personnellement.",
+    "German":     f"Falls dies Ihre Frage nicht vollständig beantwortet hat, antworten Sie mit dem Wort {HUMAN_KEYWORD}, und ein Mitglied unseres Teams wird Ihnen persönlich weiterhelfen.",
+    "Spanish":    f"Si esto no resolvió completamente tu consulta, responde con la palabra {HUMAN_KEYWORD} y un miembro de nuestro equipo te atenderá personalmente.",
+    "Portuguese": f"Se isto não resolveu totalmente a sua questão, responda com a palavra {HUMAN_KEYWORD} e um membro da nossa equipa irá ajudá-lo pessoalmente.",
+    "English":    f"If this didn't fully resolve your question, reply with the word {HUMAN_KEYWORD} and a member of our team will personally assist you.",
+}
+
+
+def format_email(message: str, guest_name: str = "", language: str = "English",
+                 invite_human: bool = False) -> str:
     t = TRANSLATIONS.get(language, TRANSLATIONS["English"])
     greeting = f"{t['dear']} {guest_name}," if guest_name else f"{t['dear_guest']},"
-    return f"{greeting}\n\n{message}\n\n{t['best_regards']},\n{t['team']}"
+    body = message
+    if invite_human:
+        invite = HUMAN_INVITE.get(language, HUMAN_INVITE["English"])
+        body = f"{message}\n\n{invite}"
+    return f"{greeting}\n\n{body}\n\n{t['best_regards']},\n{t['team']}"
+
+
+def _mentions_human_keyword(text: str) -> bool:
+    """True if the guest typed the magic word (whole-word, case-insensitive)."""
+    return re.search(rf"\b{HUMAN_KEYWORD}\b", text, re.IGNORECASE) is not None
 
 
 def normalize_input(text: str) -> str:
@@ -231,7 +258,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
     language = detect_language(chat_input)
     guest_name = extract_guest_name(subject, chat_input)
     normalized = normalize_input(chat_input)
-    human_requested = detect_human_request(normalized)
+    human_requested = _mentions_human_keyword(chat_input) or detect_human_request(normalized)
 
     if human_requested and ESCALATION_MODE == "active":
         if not apartment:
@@ -246,7 +273,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
 
     if intent == "non_question":
         message = handle_non_question(normalized, language)
-        reply = format_email(message, guest_name, language)
+        reply = format_email(message, guest_name, language, invite_human=True)
         if human_requested:
             log_escalation("human_requested", 0.0, language,
                            apartment, subject, chat_input, reply)
@@ -257,7 +284,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
 
     if not apartment:
         message = "Could you please provide the name of your apartment? This will help me assist you more accurately."
-        reply = format_email(message, guest_name, language)
+        reply = format_email(message, guest_name, language, invite_human=True)
         if human_requested:
             log_escalation("human_requested", 0.0, language,
                            "", subject, chat_input, reply)
@@ -267,7 +294,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
     results, top_similarity = retrieve_documents(embedding, apartment)
 
     if not results:
-        reply = format_email(FALLBACK_MESSAGE, guest_name, language)
+        reply = format_email(FALLBACK_MESSAGE, guest_name, language, invite_human=True)
         if human_requested:
             log_escalation("human_requested", top_similarity, language,
                            apartment, subject, chat_input, reply)
@@ -275,7 +302,7 @@ def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
 
     context = "\n\n---\n\n".join(r["content"] for r in results)
     answer = generate_answer(normalized, context, language)
-    reply = format_email(answer, guest_name, language)
+    reply = format_email(answer, guest_name, language, invite_human=True)
 
     if human_requested:
         log_escalation("human_requested", top_similarity, language,
