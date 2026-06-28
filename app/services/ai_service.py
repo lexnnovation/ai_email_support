@@ -79,6 +79,33 @@ def _mentions_human_keyword(text: str) -> bool:
     return re.search(rf"\b{HUMAN_KEYWORD}\b", text, re.IGNORECASE) is not None
 
 
+# Markers that begin a quoted reply chain. n8n forwards the whole email thread
+# (guest's new text + the quoted previous reply) as chatInput, so we cut at the
+# earliest marker and keep only the guest's new message. Critically, our own
+# replies contain the word HUMAN in the invitation line — without this, every
+# reply to an AI message would re-trigger escalation from the quoted history.
+_QUOTE_PATTERNS = [
+    re.compile(r"\bOn\b.{0,300}?\bwrote:", re.IGNORECASE),        # Gmail / Apple Mail
+    re.compile(r"-{2,}\s*Original Message\s*-{2,}", re.IGNORECASE),  # Outlook
+    re.compile(r"\bFrom:.{0,200}?\bSent:", re.IGNORECASE | re.DOTALL),  # Outlook header block
+    re.compile(r"(?m)^\s*>"),                                     # quoted lines
+]
+
+
+def strip_quoted_reply(text: str) -> str:
+    """Return only the guest's new message, dropping any quoted reply chain.
+
+    Falls back to the original text if stripping would leave nothing (e.g. a
+    bare forward with no new content), so a message is never lost.
+    """
+    cut = len(text)
+    for pat in _QUOTE_PATTERNS:
+        m = pat.search(text)
+        if m:
+            cut = min(cut, m.start())
+    return text[:cut].strip() or text.strip()
+
+
 def normalize_input(text: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -255,6 +282,7 @@ def _escalation_response(reply: str, language: str, apartment: str,
 
 
 def handle_request(chat_input: str, apartment: str, subject: str = "") -> dict:
+    chat_input = strip_quoted_reply(chat_input)
     language = detect_language(chat_input)
     guest_name = extract_guest_name(subject, chat_input)
     normalized = normalize_input(chat_input)
