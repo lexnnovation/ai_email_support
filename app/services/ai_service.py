@@ -1,3 +1,4 @@
+import html
 import re
 
 from openai import OpenAI
@@ -65,13 +66,35 @@ HUMAN_INVITE = {
 
 def format_email(message: str, guest_name: str = "", language: str = "English",
                  invite_human: bool = False) -> str:
+    """Build the guest-facing reply as HTML.
+
+    The n8n Gmail node sends HTML, so plain newlines collapse — every block is
+    wrapped in its own element. Dynamic text (the AI answer, guest name) is
+    HTML-escaped so it can never break the layout. The human-handoff invitation
+    is rendered as a separated footer below the sign-off, not inline with the
+    answer.
+    """
     t = TRANSLATIONS.get(language, TRANSLATIONS["English"])
     greeting = f"{t['dear']} {guest_name}," if guest_name else f"{t['dear_guest']},"
-    body = message
+    body_html = html.escape(message).replace("\n", "<br>")
+
+    parts = [
+        f"<p>{html.escape(greeting)}</p>",
+        f"<p>{body_html}</p>",
+        f"<p>{html.escape(t['best_regards'])},<br>{html.escape(t['team'])}</p>",
+    ]
     if invite_human:
         invite = HUMAN_INVITE.get(language, HUMAN_INVITE["English"])
-        body = f"{message}\n\n{invite}"
-    return f"{greeting}\n\n{body}\n\n{t['best_regards']},\n{t['team']}"
+        invite_html = html.escape(invite).replace(
+            HUMAN_KEYWORD, f"<strong>{HUMAN_KEYWORD}</strong>"
+        )
+        parts.append(
+            '<div style="margin-top:20px;padding:12px 16px;'
+            'background-color:#eef4fb;border-left:4px solid #2c7be5;border-radius:4px;'
+            'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;'
+            f'color:#333333;">{invite_html}</div>'
+        )
+    return "\n".join(parts)
 
 
 def _mentions_human_keyword(text: str) -> bool:
